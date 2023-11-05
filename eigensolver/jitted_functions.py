@@ -218,8 +218,7 @@ def _generate_jitted_eigsh_lanczos(jax: types.ModuleType) -> Callable:
       krv, unitary, vectors = vals
       dim = unitary.shape[1]
       n, m = jax.numpy.divmod(i, dim)
-      vectors = jax.ops.index_add(vectors, jax.ops.index[n, :],
-                                  krv[m + 1] * unitary[m, n])
+      vectors = vectors.at[n, :].set(vectors[n, :] + krv[m + 1] * unitary[m, n])
       return [krv, unitary, vectors]
 
     _vectors = jax.numpy.zeros((neig,) + shape, dtype=dtype)
@@ -612,8 +611,7 @@ def _get_vectors(jax):
     def body_vector(i, states):
       dim = unitary.shape[1]
       n, m = jax.numpy.divmod(i, dim)
-      states = jax.ops.index_add(states, jax.ops.index[n, :],
-                                Vm[m, :] * unitary[m, inds[n]])
+      states = states.at[n, :].set(states[n,:] + Vm[m, :] * unitary[m, inds[n]])
       return states
 
     state_vectors = jax.numpy.zeros([numeig, Vm.shape[1]], dtype=Vm.dtype)

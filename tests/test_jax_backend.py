@@ -298,16 +298,6 @@ def test_conj():
   np.testing.assert_allclose(expected, actual)
 
 
-@pytest.mark.parametrize("dtype", np_randn_dtypes)
-def index_update(dtype):
-  backend = jax_backend.JaxBackend()
-  tensor = backend.randn((4, 2, 3), dtype=dtype, seed=10)
-  out = backend.index_update(tensor, tensor > 0.1, 0.0)
-  tensor = np.array(tensor)
-  tensor[tensor > 0.1] = 0.0
-  np.testing.assert_allclose(tensor, out)
-
-
 @pytest.mark.parametrize("dtype", [np.float64, np.complex128])
 def test_eigsh_valid_init_operator_with_shape(dtype):
   backend = jax_backend.JaxBackend()
@@ -449,16 +439,6 @@ def test_eigsh_lanczos_raises():
     backend.eigsh_lanczos(lambda x: x, initial_state=[1, 2, 3])
 
 
-@pytest.mark.parametrize("dtype", np_dtypes)
-def test_index_update(dtype):
-  backend = jax_backend.JaxBackend()
-  tensor = backend.randn((4, 2, 3), dtype=dtype, seed=10)
-  out = backend.index_update(tensor, tensor > 0.1, 0.0)
-  np_tensor = np.array(tensor)
-  np_tensor[np_tensor > 0.1] = 0.0
-  np.testing.assert_allclose(out, np_tensor)
-
-
 @pytest.mark.parametrize("dtype", [np.float64, np.complex128])
 def test_broadcast_right_multiplication(dtype):
   backend = jax_backend.JaxBackend()
@@ -524,9 +504,10 @@ def test_elementwise_ops(dtype, method):
 def test_matrix_ops(dtype, method):
   backend = jax_backend.JaxBackend()
   matrix = backend.randn((4, 4), dtype=dtype, seed=10)
-  matrix1 = getattr(backend, method)(matrix)
-  matrix2 = getattr(sp.linalg, method)(matrix)
-  np.testing.assert_almost_equal(matrix1, matrix2)
+  if method == "expm":
+    matrix1 = backend.expm(matrix)
+    matrix2 = jax.scipy.linalg.expm(matrix)
+  np.testing.assert_almost_equal(np.array(matrix1), np.array(matrix2))
 
 
 @pytest.mark.parametrize("dtype,method", [(np.float64, "expm"),

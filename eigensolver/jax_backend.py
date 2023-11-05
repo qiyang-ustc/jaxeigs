@@ -723,10 +723,6 @@ class JaxBackend(abstract_backend.AbstractBackend):
   def divide(self, tensor1: Tensor, tensor2: Tensor) -> Tensor:
     return tensor1 / tensor2
 
-  def index_update(self, tensor: Tensor, mask: Tensor,
-                   assignee: Tensor) -> Tensor:
-    return libjax.ops.index_update(tensor, mask, assignee)
-
   def inv(self, matrix: Tensor) -> Tensor:
     if len(matrix.shape) > 2:
       raise ValueError("input to numpy backend method `inv` has shape {}."
