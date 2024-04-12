@@ -18,6 +18,7 @@ import collections
 import types
 import numpy as np
 Tensor = Any
+from .cpu_eig import cpu_eig
 
 def _iterative_classical_gram_schmidt(jax: types.ModuleType) -> Callable:
 
@@ -642,7 +643,7 @@ def _check_eigvals_convergence_eig(jax):
   @functools.partial(jax.jit, static_argnums=(2, 3))
   def check_eigvals_convergence(beta_m: float, Hm: jax.Array,
                                 tol: float, numeig: int) -> bool:
-    eigvals, eigvecs = jax.numpy.linalg.eig(Hm)
+    eigvals, eigvecs = cpu_eig(Hm)
     # TODO (mganahl) confirm that this is a valid matrix norm)
     Hm_norm = jax.numpy.linalg.norm(Hm)
     thresh = jax.numpy.maximum(
@@ -793,7 +794,7 @@ def _implicitly_restarted_arnoldi(jax: types.ModuleType) -> Callable:
 
     def outer_loop(carry):
       Hm, Vm, fm, it, numits, ar_converged, _, _, = carry
-      evals, _ = jax.numpy.linalg.eig(Hm)
+      evals, _ = cpu_eig(Hm)
       shifts, _ = sort_fun(evals)
       # perform shifted QR iterations to compress arnoldi factorization
       # Note that ||fk|| typically decreases as one iterates the outer loop
@@ -861,7 +862,7 @@ def _implicitly_restarted_arnoldi(jax: types.ModuleType) -> Callable:
 
     Hm = (numits > jax.numpy.arange(num_krylov_vecs))[:, None] * Hm * (
         numits > jax.numpy.arange(num_krylov_vecs))[None, :]
-    eigvals, U = jax.numpy.linalg.eig(Hm)
+    eigvals, U = cpu_eig(Hm)
     inds = sort_fun(eigvals)[1][:numeig]
     vectors = get_vectors(Vm, U, inds, numeig)
     return eigvals[inds], [

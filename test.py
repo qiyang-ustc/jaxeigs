@@ -1,9 +1,15 @@
 import jax
+import jax.numpy as jnp
+from eigensolver import eigs
+from jax import config
+config.update("jax_enable_x64", True)
 
 if __name__ == "__main__":
-    backend = JaxBackend()
-    m = 100
-    A = jax.random.normal(jax.random.PRNGKey(42),(m,m))
-    b = jax.random.normal(jax.random.PRNGKey(41),(m,))
+    m = 10
+    A = jax.random.uniform(jax.random.PRNGKey(42),(m,m))
+    b = jax.random.uniform(jax.random.PRNGKey(41),(m,))
     def mapA(x): return A@x
-    backend.eigs(mapA,initial_state = b)
+    res = eigs(mapA, initial_state = b, numeig=1, num_krylov_vecs = 5)
+    print(res[0],res[1][0])
+    
+    A @ res[1][0] / res[1][0]
