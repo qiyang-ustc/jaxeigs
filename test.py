@@ -1,6 +1,6 @@
 import jax
 import jax.numpy as jnp
-from eigensolver import eigs
+from jaxeig import eigs
 from jax import config
 config.update("jax_enable_x64", True)
 
