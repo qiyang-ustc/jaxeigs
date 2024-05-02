@@ -152,7 +152,7 @@ def eigs(A: Callable,
           num_krylov_vecs: int = 50,
           numeig: int = 6,
           tol: float = 1E-8,
-          which: Text = 'LR',
+          which: Text = 'LM',
           maxiter: int = 20) -> Tuple[Tensor, List]:
     if args is None:
         args = []
