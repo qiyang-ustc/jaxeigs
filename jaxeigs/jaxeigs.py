@@ -4,82 +4,20 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import warnings
-from typing import Optional, Tuple, Callable, List, Text, Type, Any
 
+from typing import Optional, Tuple, Callable, List, Text, Type, Any, Sequence
+import types
+
+import functools
+import numpy as np
 Tensor = Any
+
+from .rand import randn, random_uniform
+from .call_lapack import lapack_schur, lapack_eig, lapack_eigh
+
 _CACHED_MATVECS = {}
 _CACHED_FUNCTIONS = {}
 
-def randn(shape: Tuple[int, ...],
-            dtype: Optional[np.dtype] = None,
-            seed: Optional[int] = None) -> Tensor:
-    if not seed:
-        seed = np.random.randint(0, 2**63)
-    key = jax.random.PRNGKey(seed)
-
-    dtype = dtype if dtype is not None else np.dtype(np.float64)
-
-    def cmplx_randn(complex_dtype, real_dtype):
-        real_dtype = np.dtype(real_dtype)
-        complex_dtype = np.dtype(complex_dtype)
-
-        key_2 = jax.random.PRNGKey(seed + 1)
-  
-        real_part = jax.random.normal(key, shape, dtype=real_dtype)
-        complex_part = jax.random.normal(key_2, shape, dtype=real_dtype)
-        unit = (
-            np.complex64(1j)
-            if complex_dtype == np.dtype(np.complex64) else np.complex128(1j))
-        return real_part + unit * complex_part
-
-    if np.dtype(dtype) is np.dtype(jnp.complex128):
-        return cmplx_randn(dtype, jnp.float64)
-    if np.dtype(dtype) is np.dtype(jnp.complex64):
-        return cmplx_randn(dtype, jnp.float32)
-
-    return jax.random.normal(key, shape).astype(dtype)
-
-def random_uniform(shape: Tuple[int, ...],
-                    boundaries: Optional[Tuple[float, float]] = (0.0, 1.0),
-                    dtype: Optional[np.dtype] = None,
-                    seed: Optional[int] = None) -> Tensor:
-    if not seed:
-        seed = np.random.randint(0, 2**63)
-    key = jax.random.PRNGKey(seed)
-
-    dtype = dtype if dtype is not None else np.dtype(np.float64)
-
-    def cmplx_random_uniform(complex_dtype, real_dtype):
-        real_dtype = np.dtype(real_dtype)
-        complex_dtype = np.dtype(complex_dtype)
-
-        key_2 = jax.random.PRNGKey(seed + 1)
-
-        real_part = jax.random.uniform(
-            key,
-            shape,
-            dtype=real_dtype,
-            minval=boundaries[0],
-            maxval=boundaries[1])
-        complex_part = jax.random.uniform(
-            key_2,
-            shape,
-            dtype=real_dtype,
-            minval=boundaries[0],
-            maxval=boundaries[1])
-        unit = (
-            np.complex64(1j)
-            if complex_dtype == np.dtype(np.complex64) else np.complex128(1j))
-        return real_part + unit * complex_part
-
-    if np.dtype(dtype) is np.dtype(jnp.complex128):
-        return cmplx_random_uniform(dtype, jnp.float64)
-    if np.dtype(dtype) is np.dtype(jnp.complex64):
-        return cmplx_random_uniform(dtype, jnp.float32)
-
-    return jax.random.uniform(
-        key, shape, minval=boundaries[0], maxval=boundaries[1]).astype(dtype)
-    
 """
   Implicitly restarted Arnoldi method for finding the lowest
   eigenvector-eigenvalue pairs of a linear operator `A`.
@@ -146,14 +84,14 @@ def random_uniform(shape: Tuple[int, ...],
 """
 def eigs(A: Callable,
           args: Optional[List] = None,
-          initial_state: Optional[Tensor] = None,
+          initial_state: Optional[jax.Array] = None,
           shape: Optional[Tuple[int, ...]] = None,
           dtype: Optional[Type[np.number]] = None,
-          num_krylov_vecs: int = 50,
-          numeig: int = 6,
-          tol: float = 1E-8,
+          num_krylov_vecs: int = 30,
+          numeig: int = 1,
+          tol: float = 1E-12,
           which: Text = 'LM',
-          maxiter: int = 20) -> Tuple[Tensor, List]:
+          maxiter: int = 100) -> Tuple[jax.Array, List]:
     if args is None:
         args = []
     if which not in ('LR', 'LM'):
@@ -168,7 +106,7 @@ def eigs(A: Callable,
                         "`dtype` have to be provided")
         initial_state = randn(shape, dtype)
 
-    if not isinstance(initial_state, (jnp.ndarray, np.ndarray)):
+    if not isinstance(initial_state, (jax.Array, np.ndarray)):
         raise TypeError("Expected a `jax.array`. Got {}".format(
             type(initial_state)))
 
@@ -184,245 +122,13 @@ def eigs(A: Callable,
                                                     num_krylov_vecs, numeig,
                                                     which, tol, maxiter,
                                                     jax.lax.Precision.DEFAULT)
-    if numeig > numits:
-        warnings.warn(
-            f"Arnoldi terminated early after numits = {numits}"
-            f" < numeig = {numeig} steps. For this value of `numeig `"
-            f"the routine will return spurious eigenvalues of value 0.0."
-            f"Use a smaller value of numeig, or a smaller value for `tol`")
+    # if numeig > numits:
+    #     warnings.warn(
+    #         f"Arnoldi terminated early after numits = {numits}"
+    #         f" < numeig = {numeig} steps. For this value of `numeig `"
+    #         f"the routine will return spurious eigenvalues of value 0.0."
+    #         f"Use a smaller value of numeig, or a smaller value for `tol`")
     return eta, U
-  
-import functools
-from typing import List, Any, Tuple, Callable, Sequence, Text
-import collections
-import types
-import numpy as np
-Tensor = Any
-
-
-def cpu_eig_host(H):
-        res = np.linalg.eig(H)
-        print(res)
-        return res
-
-def cpu_eig(H):
-        result_shape = (jax.ShapeDtypeStruct(H.shape[0:1], H.dtype),
-                                        jax.ShapeDtypeStruct(H.shape, H.dtype))
-        return jax.pure_callback(cpu_eig_host, result_shape, H)
-
-def _iterative_classical_gram_schmidt(jax: types.ModuleType) -> Callable:
-
-    JaxPrecisionType = type(jax.lax.Precision.DEFAULT)
-    def iterative_classical_gram_schmidt(
-            vector: jax.Array,
-            krylov_vectors: jax.Array,
-            precision: JaxPrecisionType,
-            iterations: int = 2,
-            ) -> jax.Array:
-        """
-        Orthogonalize `vector`  to all rows of `krylov_vectors`.
-
-        Args:
-            vector: Initial vector.
-            krylov_vectors: Matrix of krylov vectors, each row is treated as a
-                vector.
-            iterations: Number of iterations.
-
-        Returns:
-            jax.Array: The orthogonalized vector.
-        """
-        i1 = list(range(1, len(krylov_vectors.shape)))
-        i2 = list(range(len(vector.shape)))
-
-        vec = vector
-        overlaps = 0
-        for _ in range(iterations):
-            ov = jax.numpy.tensordot(
-                    krylov_vectors.conj(), vec, (i1, i2), precision=precision)
-            vec = vec - jax.numpy.tensordot(
-                    ov, krylov_vectors, ([0], [0]), precision=precision)
-            overlaps = overlaps + ov
-        return vec, overlaps
-
-    return iterative_classical_gram_schmidt
-
-
-def _generate_jitted_eigsh_lanczos(jax: types.ModuleType) -> Callable:
-    """
-    Helper function to generate jitted lanczos function used
-    in JaxBackend.eigsh_lanczos. The function `jax_lanczos`
-    returned by this higher-order function has the following
-    call signature:
-    ```
-    eigenvalues, eigenvectors = jax_lanczos(matvec:Callable,
-                                                                        arguments: List[Tensor],
-                                                                        init: Tensor,
-                                                                        ncv: int,
-                                                                        neig: int,
-                                                                        landelta: float,
-                                                                        reortho: bool)
-    ```
-    `matvec`: A callable implementing the matrix-vector product of a
-    linear operator. `arguments`: Arguments to `matvec` additional to
-    an input vector. `matvec` will be called as `matvec(init, *args)`.
-    `init`: An initial input vector to `matvec`.
-    `ncv`: Number of krylov iterations (i.e. dimension of the Krylov space).
-    `neig`: Number of eigenvalue-eigenvector pairs to be computed.
-    `landelta`: Convergence parameter: if the norm of the current Lanczos vector
-
-    `reortho`: If `True`, reorthogonalize all krylov vectors at each step.
-        This should be used if `neig>1`.
-
-    Args:
-        jax: The `jax` module.
-    Returns:
-        Callable: A jitted function that does a lanczos iteration.
-
-    """
-    JaxPrecisionType = type(jax.lax.Precision.DEFAULT)
-
-    @functools.partial(jax.jit, static_argnums=(3, 4, 5, 6, 7))
-    def jax_lanczos(matvec: Callable, arguments: List, init: jax.Array,
-                                    ncv: int, neig: int, landelta: float, reortho: bool,
-                                    precision: JaxPrecisionType) -> Tuple[jax.Array, List]:
-        """
-        Lanczos iteration for symmeric eigenvalue problems. If reortho = False,
-        the Krylov basis is constructed without explicit re-orthogonalization. 
-        In infinite precision, all Krylov vectors would be orthogonal. Due to 
-        finite precision arithmetic, orthogonality is usually quickly lost. 
-        For reortho=True, the Krylov basis is explicitly reorthogonalized.
-
-        Args:
-            matvec: A callable implementing the matrix-vector product of a
-                linear operator.
-            arguments: Arguments to `matvec` additional to an input vector.
-                `matvec` will be called as `matvec(init, *args)`.
-            init: An initial input vector to `matvec`.
-            ncv: Number of krylov iterations (i.e. dimension of the Krylov space).
-            neig: Number of eigenvalue-eigenvector pairs to be computed.
-            landelta: Convergence parameter: if the norm of the current Lanczos vector
-                falls below `landelta`, iteration is stopped.
-            reortho: If `True`, reorthogonalize all krylov vectors at each step.
-                This should be used if `neig>1`.
-            precision: jax.lax.Precision type used in jax.numpy.vdot
-
-        Returns:
-            jax.Array: Eigenvalues
-            List: Eigenvectors
-            int: Number of iterations
-        """
-        shape = init.shape
-        dtype = init.dtype
-        iterative_classical_gram_schmidt = _iterative_classical_gram_schmidt(jax)
-        mask_slice = (slice(ncv + 2), ) + (None,) * len(shape)
-        def scalar_product(a, b):
-            i1 = list(range(len(a.shape)))
-            i2 = list(range(len(b.shape)))
-            return jax.numpy.tensordot(a.conj(), b, (i1, i2), precision=precision)
-
-        def norm(a):
-            return jax.numpy.sqrt(scalar_product(a, a))
-
-        def body_lanczos(vals):
-            krylov_vectors, alphas, betas, i = vals
-            previous_vector = krylov_vectors[i]
-            def body_while(vals):
-                pv, kv, _ = vals
-                pv = iterative_classical_gram_schmidt(
-                        pv, (i > jax.numpy.arange(ncv + 2))[mask_slice] * kv, precision)[0]
-                return [pv, kv, False]
-
-            def cond_while(vals):
-                return vals[2]
-
-            previous_vector, krylov_vectors, _ = jax.lax.while_loop(
-                    cond_while, body_while,
-                    [previous_vector, krylov_vectors, reortho])
-
-            beta = norm(previous_vector)
-            normalized_vector = previous_vector / beta
-            Av = matvec(normalized_vector, *arguments)
-            alpha = scalar_product(normalized_vector, Av)
-            alphas = alphas.at[i - 1].set(alpha)
-            betas = betas.at[i].set(beta)
-
-            def while_next(vals):
-                Av, _ = vals
-                res = Av - normalized_vector * alpha -   krylov_vectors[i - 1] * beta
-                return [res, False]
-
-            def cond_next(vals):
-                return vals[1]
-
-            next_vector, _ = jax.lax.while_loop(
-                    cond_next, while_next,
-                    [Av, jax.numpy.logical_not(reortho)])
-            next_vector = jax.numpy.reshape(next_vector, shape)
-
-            krylov_vectors = krylov_vectors.at[i].set(normalized_vector)
-            krylov_vectors = krylov_vectors.at[i + 1].set(next_vector)
-
-            return [krylov_vectors, alphas, betas, i + 1]
-
-        def cond_fun(vals):
-            betas, i = vals[-2], vals[-1]
-            norm = betas[i - 1]
-            return jax.lax.cond(i <= ncv, lambda x: x[0] > x[1], lambda x: False,
-                                                    [norm, landelta])
-
-        # note: ncv + 2 because the first vector is all zeros, and the
-        # last is the unnormalized residual.
-        krylov_vecs = jax.numpy.zeros((ncv + 2,) + shape, dtype=dtype)
-        # NOTE (mganahl): initial vector is normalized inside the loop
-        krylov_vecs = krylov_vecs.at[1].set(init)
-
-        # betas are the upper and lower diagonal elements
-        # of the projected linear operator
-        # the first two beta-values can be discarded
-        # set betas[0] to 1.0 for initialization of loop
-        # betas[2] is set to the norm of the initial vector.
-        betas = jax.numpy.zeros(ncv + 1, dtype=dtype)
-        betas = betas.at[0].set(1.0)
-        # diagonal elements of the projected linear operator
-        alphas = jax.numpy.zeros(ncv, dtype=dtype)
-        initvals = [krylov_vecs, alphas, betas, 1]
-        krylov_vecs, alphas, betas, numits = jax.lax.while_loop(
-                cond_fun, body_lanczos, initvals)
-        # FIXME (mganahl): if the while_loop stopps early at iteration i, alphas
-        # and betas are 0.0 at positions n >= i - 1. eigh will then wrongly give
-        # degenerate eigenvalues 0.0. JAX does currently not support
-        # dynamic slicing with variable slice sizes, so these beta values
-        # can't be truncated. Thus, if numeig >= i - 1, jitted_lanczos returns
-        # a set of spurious eigen vectors and eigen values.
-        # If algebraically small EVs are desired, one can initialize `alphas` with
-        # large positive values, thus pushing the spurious eigenvalues further
-        # away from the desired ones (similar for algebraically large EVs)
-
-        #FIXME: replace with eigh_banded once JAX supports it
-        A_tridiag = jax.numpy.diag(alphas) + jax.numpy.diag(
-                betas[2:], 1) + jax.numpy.diag(jax.numpy.conj(betas[2:]), -1)
-        eigvals, U = jax.numpy.linalg.eigh(A_tridiag)
-        eigvals = eigvals.astype(dtype)
-
-        # expand eigenvectors in krylov basis
-        def body_vector(i, vals):
-            krv, unitary, vectors = vals
-            dim = unitary.shape[1]
-            n, m = jax.numpy.divmod(i, dim)
-            vectors = vectors.at[n, :].set(vectors[n, :] + krv[m + 1] * unitary[m, n])
-            return [krv, unitary, vectors]
-
-        _vectors = jax.numpy.zeros((neig,) + shape, dtype=dtype)
-        _, _, vectors = jax.lax.fori_loop(0, neig * (krylov_vecs.shape[0] - 1),
-                                                                            body_vector,
-                                                                            [krylov_vecs, U, _vectors])
-
-        return jax.numpy.array(eigvals[0:neig]), [
-                vectors[n] / norm(vectors[n]) for n in range(neig)
-        ], numits
-
-    return jax_lanczos
-
 
 def _generate_lanczos_factorization(jax: types.ModuleType) -> Callable:
     """
@@ -432,13 +138,13 @@ def _generate_lanczos_factorization(jax: types.ModuleType) -> Callable:
         Callable: A jitted function that does a lanczos factorization.
 
     """
-    JaxPrecisionType = type(jax.lax.Precision.DEFAULT)
+    
 
     @functools.partial(jax.jit, static_argnums=(6, 7, 8, 9))
     def _lanczos_fact(
             matvec: Callable, args: List, v0: jax.Array,
             Vm: jax.Array, alphas: jax.Array, betas: jax.Array,
-            start: int, num_krylov_vecs: int, tol: float, precision: JaxPrecisionType
+            start: int, num_krylov_vecs: int, tol: float, precision: jax.lax.Precision
     ):
         """
         Compute an m-step lanczos factorization of `matvec`, with
@@ -586,14 +292,14 @@ def _generate_arnoldi_factorization(jax: types.ModuleType) -> Callable:
         converged: Whether convergence was achieved.
 
     """
-    JaxPrecisionType = type(jax.lax.Precision.DEFAULT)
+    
     iterative_classical_gram_schmidt = _iterative_classical_gram_schmidt(jax)
 
     @functools.partial(jax.jit, static_argnums=(5, 6, 7, 8))
     def _arnoldi_fact(
             matvec: Callable, args: List, v0: jax.Array,
             Vm: jax.Array, H: jax.Array, start: int,
-            num_krylov_vecs: int, tol: float, precision: JaxPrecisionType
+            num_krylov_vecs: int, tol: float, precision: jax.lax.Precision
     ) -> Tuple[jax.Array, jax.Array, jax.Array, float, int,
                         bool]:
         """
@@ -879,7 +585,7 @@ def _implicitly_restarted_arnoldi(jax: types.ModuleType) -> Callable:
         Callable: A function performing an implicitly restarted
             Arnoldi factorization
     """
-    JaxPrecisionType = type(jax.lax.Precision.DEFAULT)
+    
 
     arnoldi_fact = _generate_arnoldi_factorization(jax)
 
@@ -888,7 +594,7 @@ def _implicitly_restarted_arnoldi(jax: types.ModuleType) -> Callable:
     def implicitly_restarted_arnoldi_method(
             matvec: Callable, args: List, initial_state: jax.Array,
             num_krylov_vecs: int, numeig: int, which: Text, tol: float, maxiter: int,
-            precision: JaxPrecisionType
+            precision: jax.lax.Precision
     ) -> Tuple[jax.Array, List[jax.Array], int]:
         """
         Implicitly restarted arnoldi factorization of `matvec`. The routine
@@ -1099,14 +805,14 @@ def _implicitly_restarted_lanczos(jax: types.ModuleType) -> Callable:
         Callable: A function performing an implicitly restarted
             Lanczos factorization
     """
-    JaxPrecisionType = type(jax.lax.Precision.DEFAULT)
+    
     lanczos_fact = _generate_lanczos_factorization(jax)
 
     @functools.partial(jax.jit, static_argnums=(3, 4, 5, 6, 7, 8))
     def implicitly_restarted_lanczos_method(
             matvec: Callable, args: List, initial_state: jax.Array,
             num_krylov_vecs: int, numeig: int, which: Text, tol: float, maxiter: int,
-            precision: JaxPrecisionType
+            precision: jax.lax.Precision
     ) -> Tuple[jax.Array, List[jax.Array], int]:
         """
         Implicitly restarted lanczos factorization of `matvec`. The routine
@@ -1296,11 +1002,11 @@ def gmres_wrapper(jax: types.ModuleType):
         functions.givens_rotation = givens_rotation
     """
     jnp = jax.numpy
-    JaxPrecisionType = type(jax.lax.Precision.DEFAULT)
+    
     def gmres_m(
             A_mv: Callable, A_args: Sequence, b: jax.Array, x0: jax.Array,
             tol: float, atol: float, num_krylov_vectors: int, maxiter: int,
-            precision: JaxPrecisionType) -> Tuple[jax.Array, float, int, bool]:
+            precision: jax.lax.Precision) -> Tuple[jax.Array, float, int, bool]:
         """
         Solve A x = b for x using the m-restarted GMRES method. This is
         intended to be called via jax_backend.gmres.
@@ -1343,7 +1049,7 @@ def gmres_wrapper(jax: types.ModuleType):
     def gmres(A_mv: Callable, A_args: Sequence, b: jax.Array,
                         x: jax.Array, num_krylov_vectors: int, x0: jax.Array,
                         tol: float, b_norm: float,
-                        precision: JaxPrecisionType) -> Tuple[bool, float, jax.Array]:
+                        precision: jax.lax.Precision) -> Tuple[bool, float, jax.Array]:
         """
         A single restart of GMRES.
 
@@ -1413,7 +1119,7 @@ def gmres_wrapper(jax: types.ModuleType):
     def gmres_krylov(
             A_mv: Callable, A_args: Sequence, n_kry: int, x0: jax.Array,
             r: jax.Array, beta: float, tol: float, b_norm: float,
-            precision: JaxPrecisionType
+            precision: jax.lax.Precision
     ) -> Tuple[int, jax.Array, jax.Array, jax.Array]:
         """
         Builds the Arnoldi decomposition of (A, v), where v is the normalized
@@ -1540,7 +1246,7 @@ def gmres_wrapper(jax: types.ModuleType):
     def kth_arnoldi_step(
             k: int, A_mv: Callable, A_args: Sequence, V: jax.Array,
             H: jax.Array, tol: float,
-            precision: JaxPrecisionType) -> Tuple[jax.Array, jax.Array]:
+            precision: jax.lax.Precision) -> Tuple[jax.Array, jax.Array]:
         """
         Performs the kth iteration of the Arnoldi reduction procedure.
         Args:
